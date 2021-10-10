@@ -50,7 +50,7 @@
 			<label>
 				Account Visibility<br>
 				<small class="form-text text-muted">
-					Control whether accounts (users &amp; teams) are shown to everyone or only to admins
+					Control whether accounts (users &amp; teams) are shown to everyone, only to authenticated users, or only to admins
 				</small>
 			</label>
 			<select class="form-control custom-select" name="account_visibility">
@@ -83,17 +83,9 @@
 				<option value="private" {% if registration_visibility == 'private' %}selected{% endif %}>
 					Private
 				</option>
-                {% if integrations.mlc() %}
 				<option value="mlc" {% if registration_visibility == 'mlc' %}selected{% endif %}>
 					MajorLeagueCyber Only
 				</option>
-                {% endif %}
-
-                {% if integrations.ctftime() %}
-				<option value="ctftime" {% if registration_visibility == 'ctftime' %}selected{% endif %}>
-					CTFtime Only
-				</option>
-                {% endif %}
 			</select>
 		</div>
 
