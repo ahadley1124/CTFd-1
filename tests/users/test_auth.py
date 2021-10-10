@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from unittest.mock import patch
+
 from freezegun import freeze_time
-from mock import patch
 
 from CTFd.models import Users, db
 from CTFd.utils import get_config, set_config
@@ -38,21 +39,21 @@ def test_register_duplicate_username():
         register_user(
             app,
             name="user1",
-            email="user1@ctfd.io",
+            email="user1@examplectf.com",
             password="password",
             raise_for_error=False,
         )
         register_user(
             app,
             name="user1",
-            email="user2@ctfd.io",
+            email="user2@examplectf.com",
             password="password",
             raise_for_error=False,
         )
         register_user(
             app,
             name="admin  ",
-            email="admin2@ctfd.io",
+            email="admin2@examplectf.com",
             password="password",
             raise_for_error=False,
         )
@@ -68,14 +69,14 @@ def test_register_duplicate_email():
         register_user(
             app,
             name="user1",
-            email="user1@ctfd.io",
+            email="user1@examplectf.com",
             password="password",
             raise_for_error=False,
         )
         register_user(
             app,
             name="user2",
-            email="user1@ctfd.io",
+            email="user1@examplectf.com",
             password="password",
             raise_for_error=False,
         )
@@ -143,7 +144,7 @@ def test_user_login_with_email():
     app = create_ctfd()
     with app.app_context():
         register_user(app)
-        client = login_as_user(app, name="user@ctfd.io", password="password")
+        client = login_as_user(app, name="user@examplectf.com", password="password")
         r = client.get("/profile")
         assert (
             r.location != "http://localhost/login"
@@ -276,7 +277,7 @@ def test_contact_for_password_reset():
             forgot_link = "http://localhost/reset_password"
             r = client.get(forgot_link)
 
-            assert "Contact a CTF organizer" in r.get_data(as_text=True)
+            assert "contact an organizer" in r.get_data(as_text=True)
     destroy_ctfd(app)
 
 
@@ -302,15 +303,15 @@ def test_user_can_confirm_email(mock_smtp):
         client = login_as_user(app, name="user1", password="password")
 
         r = client.get("http://localhost/confirm")
-        assert "Need to resend the confirmation email?" in r.get_data(as_text=True)
+        assert "We've sent a confirmation email" in r.get_data(as_text=True)
 
-        # smtp.sendmail was called
-        mock_smtp.return_value.sendmail.assert_called()
+        # smtp send message function was called
+        mock_smtp.return_value.send_message.assert_called()
 
         with client.session_transaction() as sess:
             data = {"nonce": sess.get("nonce")}
             r = client.post("http://localhost/confirm", data=data)
-            assert "confirmation email has been resent" in r.get_data(as_text=True)
+            assert "Confirmation email sent to" in r.get_data(as_text=True)
 
             r = client.get("/challenges")
             assert (
@@ -332,7 +333,7 @@ def test_user_can_confirm_email(mock_smtp):
 @patch("smtplib.SMTP")
 def test_user_can_reset_password(mock_smtp):
     """Test that a user is capable of resetting their password"""
-    from email.mime.text import MIMEText
+    from email.message import EmailMessage
 
     app = create_ctfd()
     with app.app_context(), freeze_time("2012-01-14 03:21:34"):
@@ -364,12 +365,16 @@ def test_user_can_reset_password(mock_smtp):
 
             # Build the email
             msg = (
-                "Did you initiate a password reset? If you didn't initiate this request you can ignore this email. "
+                "Did you initiate a password reset on CTFd? If you didn't initiate this request you can ignore this email. "
                 "\n\nClick the following link to reset your password:\n"
-                "http://localhost/reset_password/InVzZXJAdXNlci5jb20i.TxD0vg.28dY_Gzqb1TH9nrcE_H7W8YFM-U"
+                "http://localhost/reset_password/InVzZXJAdXNlci5jb20i.TxD0vg.28dY_Gzqb1TH9nrcE_H7W8YFM-U\n\n"
+                "If the link is not clickable, try copying and pasting it into your browser."
             )
             ctf_name = get_config("ctf_name")
-            email_msg = MIMEText(msg)
+
+            email_msg = EmailMessage()
+            email_msg.set_content(msg)
+
             email_msg["Subject"] = "Password Reset Request from {ctf_name}".format(
                 ctf_name=ctf_name
             )
@@ -377,8 +382,9 @@ def test_user_can_reset_password(mock_smtp):
             email_msg["To"] = to_addr
 
             # Make sure that the reset password email is sent
-            mock_smtp.return_value.sendmail.assert_called_with(
-                from_addr, [to_addr], email_msg.as_string()
+            mock_smtp.return_value.send_message.assert_called()
+            assert str(mock_smtp.return_value.send_message.call_args[0][0]) == str(
+                email_msg
             )
 
             # Get user's original password
@@ -416,4 +422,45 @@ def test_banned_user():
         for route in routes:
             r = client.get(route)
             assert r.status_code == 403
+    destroy_ctfd(app)
+
+
+def test_registration_code_required():
+    """
+    Test that registration code configuration properly blocks logins
+    with missing and incorrect registration codes
+    """
+    app = create_ctfd()
+    with app.app_context():
+        # Set a registration code
+        set_config("registration_code", "secret-sauce")
+
+        with app.test_client() as client:
+            # Load CSRF nonce
+            r = client.get("/register")
+            resp = r.get_data(as_text=True)
+            assert "Registration Code" in resp
+            with client.session_transaction() as sess:
+                data = {
+                    "name": "user",
+                    "email": "user1@examplectf.com",
+                    "password": "password",
+                    "nonce": sess.get("nonce"),
+                }
+            # Attempt registration without password
+            r = client.post("/register", data=data)
+            resp = r.get_data(as_text=True)
+            assert "The registration code you entered was incorrect" in resp
+
+            # Attempt registration with wrong password
+            data["registration_code"] = "wrong-sauce"
+            r = client.post("/register", data=data)
+            resp = r.get_data(as_text=True)
+            assert "The registration code you entered was incorrect" in resp
+
+            # Attempt registration with right password
+            data["registration_code"] = "secret-sauce"
+            r = client.post("/register", data=data)
+            assert r.status_code == 302
+            assert r.location.startswith("http://localhost/challenges")
     destroy_ctfd(app)
