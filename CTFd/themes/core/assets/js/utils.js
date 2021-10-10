@@ -26,7 +26,7 @@ $.fn.serializeJSON = function(omit_nulls) {
       if (x.value !== null && x.value !== "") {
         params[x.name] = x.value;
       } else {
-        let input = form.find(`:input[name=${x.name}]`);
+        let input = form.find(`:input[name='${x.name}']`);
         if (input.data("initial") !== input.val()) {
           params[x.name] = x.value;
         }
@@ -108,7 +108,10 @@ WindowController.prototype.handleEvent = function(event) {
       if (data.id !== this.id) {
         this[data.type](data);
       }
-    } catch (error) {}
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.log(error);
+    }
   }
 };
 
@@ -134,7 +137,7 @@ WindowController.prototype.bye = function(event) {
   this.check();
 };
 
-WindowController.prototype.check = function(event) {
+WindowController.prototype.check = function(_event) {
   var now = +new Date(),
     takeMaster = true,
     id;
@@ -164,21 +167,30 @@ WindowController.prototype.broadcast = function(type, data) {
   try {
     localStorage.setItem("broadcast", JSON.stringify(event));
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.log(error);
   }
 };
 
+// https://gist.github.com/0x263b/2bdd90886c2036a1ad5bcf06d6e6fb37
 export function colorHash(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash;
   }
-  let colour = "#";
-  for (let i = 0; i < 3; i++) {
-    let value = (hash >> (i * 8)) & 0xff;
-    colour += ("00" + value.toString(16)).substr(-2);
-  }
-  return colour;
+  // Range calculation
+  // diff = max - min;
+  // x = ((hash % diff) + diff) % diff;
+  // return x + min;
+  // Calculate HSL values
+  // Range from 0 to 360
+  let h = ((hash % 360) + 360) % 360;
+  // Range from 75 to 100
+  let s = (((hash % 25) + 25) % 25) + 75;
+  // Range from 40 to 60
+  let l = (((hash % 20) + 20) % 20) + 40;
+  return `hsl(${h}, ${s}%, ${l}%)`;
 }
 
 export function htmlEntities(string) {
@@ -255,4 +267,39 @@ export function copyToClipboard(event, selector) {
   setTimeout(function() {
     $(event.target).tooltip("hide");
   }, 1500);
+}
+
+export function makeSortableTables() {
+  $("th.sort-col").append(` <i class="fas fa-sort"></i>`);
+  $("th.sort-col").click(function() {
+    var table = $(this)
+      .parents("table")
+      .eq(0);
+    var rows = table
+      .find("tr:gt(0)")
+      .toArray()
+      .sort(comparer($(this).index()));
+    this.asc = !this.asc;
+    if (!this.asc) {
+      rows = rows.reverse();
+    }
+    for (var i = 0; i < rows.length; i++) {
+      table.append(rows[i]);
+    }
+  });
+  function comparer(index) {
+    return function(a, b) {
+      var valA = getCellValue(a, index),
+        valB = getCellValue(b, index);
+      return $.isNumeric(valA) && $.isNumeric(valB)
+        ? valA - valB
+        : valA.toString().localeCompare(valB);
+    };
+  }
+  function getCellValue(row, index) {
+    return $(row)
+      .children("td")
+      .eq(index)
+      .text();
+  }
 }
