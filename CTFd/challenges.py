@@ -1,36 +1,45 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, redirect, render_template, request, url_for
 
-from CTFd.utils import config, get_config
-from CTFd.utils.dates import ctf_ended, ctf_paused, view_after_ctf
+from CTFd.constants.config import ChallengeVisibilityTypes, Configs
+from CTFd.utils.config import is_teams_mode
+from CTFd.utils.dates import ctf_ended, ctf_paused, ctf_started
 from CTFd.utils.decorators import (
     during_ctf_time_only,
-    require_team,
+    require_complete_profile,
     require_verified_emails,
 )
 from CTFd.utils.decorators.visibility import check_challenge_visibility
 from CTFd.utils.helpers import get_errors, get_infos
+from CTFd.utils.user import authed, get_current_team
 
 challenges = Blueprint("challenges", __name__)
 
 
 @challenges.route("/challenges", methods=["GET"])
+@require_complete_profile
 @during_ctf_time_only
 @require_verified_emails
 @check_challenge_visibility
-@require_team
 def listing():
+    if (
+        Configs.challenge_visibility == ChallengeVisibilityTypes.PUBLIC
+        and authed() is False
+    ):
+        pass
+    else:
+        if is_teams_mode() and get_current_team() is None:
+            return redirect(url_for("teams.private", next=request.full_path))
+
     infos = get_infos()
     errors = get_errors()
-    start = get_config("start") or 0
-    end = get_config("end") or 0
 
-    if ctf_paused():
-        infos.append("{} is paused".format(config.ctf_name()))
+    if ctf_started() is False:
+        errors.append(f"{Configs.ctf_name} has not started yet")
 
-    # CTF has ended but we want to allow view_after_ctf. Show error but let JS load challenges.
-    if ctf_ended() and view_after_ctf():
-        infos.append("{} has ended".format(config.ctf_name()))
+    if ctf_paused() is True:
+        infos.append(f"{Configs.ctf_name} is paused")
 
-    return render_template(
-        "challenges.html", infos=infos, errors=errors, start=int(start), end=int(end)
-    )
+    if ctf_ended() is True:
+        infos.append(f"{Configs.ctf_name} has ended")
+
+    return render_template("challenges.html", infos=infos, errors=errors)
