@@ -23,10 +23,12 @@ def pages_new():
 @admin.route("/admin/pages/preview", methods=["POST"])
 @admins_only
 def pages_preview():
-    data = request.form.to_dict()
+    # We only care about content.
+    # Loading other attributes improperly will cause Marshmallow to incorrectly return a dict
+    data = {"content": request.form.get("content")}
     schema = PageSchema()
     page = schema.load(data)
-    return render_template("page.html", content=markdown(page.data.content))
+    return render_template("page.html", content=page.data.html)
 
 
 @admin.route("/admin/pages/<int:page_id>")
